@@ -13,223 +13,205 @@ use Manticoresearch\Response;
  */
 class UnixSocket extends \Manticoresearch\Transport implements TransportInterface
 {
-	/**
-	 * @var string
-	 */
-	protected $scheme = 'http';
-	/**
-	 * @var \Swoole\Client|null
-	 */
-	protected static ?\Swoole\Client $client = null;
+    /**
+     * @var string
+     */
+    protected $scheme = 'http';
+    /**
+     * @var \Swoole\Client|null
+     */
+    protected static $client = null;
 
-	/**
-	 * @param Request $request
-	 * @param array   $params
-	 *
-	 * @return Response
-	 */
-	public function execute(Request $request, $params = [])
-	{
-		$connection = $this->getConnection();
-		$client     = $this->getSocketConnection($connection->getConfig('persistent'));
-		$endpoint   = $request->getPath();
+    /**
+     * @param Request $request
+     * @param array   $params
+     *
+     * @return Response
+     */
+    public function execute(Request $request, $params = [])
+    {
+        $connection = $this->getConnection();
+        $client     = $this->getSocketConnection($connection->getConfig('persistent'));
+        $endpoint   = $request->getPath();
 
-		$url = $this->setupURI($endpoint, $request->getQuery());
+        $url = $this->setupURI($endpoint, $request->getQuery());
 
-		$data      = $request->getBody();
-		$method    = $request->getMethod();
-		$headers   = $connection->getHeaders();
-		$headers[] = sprintf('Content-Type: %s', $request->getContentType());
-		if (!empty($data))
-		{
-			if (is_array($data))
-			{
-				$content = json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-			}
-			else
-			{
-				$content = $data;
-			}
-		}
+        $data      = $request->getBody();
+        $method    = $request->getMethod();
+        $headers   = $connection->getHeaders();
+        $headers[] = sprintf('Content-Type: %s', $request->getContentType());
 
-		if ($connection->getConnectTimeout() > 0)
-		{
-			//TODO time out
-		}
+        if (!empty($data)) {
+            if (is_array($data)) {
+                $content = json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            } else {
+                $content = $data;
+            }
+        }
 
-		if ($connection->getConfig('username') !== null && $connection->getConfig('password') !== null)
-		{
-			//TODO: http auth
-			// $connection->getConfig('username')
-			// $connection->getConfig('password')
-		}
+        if ($connection->getConnectTimeout() > 0) {
+            //TODO time out
+        }
 
-		if ($connection->getConfig('proxy') !== null)
-		{
-			//TODO http proxy
-		}
+        if ($connection->getConfig('username') !== null && $connection->getConfig('password') !== null) {
+            //TODO: http auth
+            // $connection->getConfig('username')
+            // $connection->getConfig('password')
+        }
 
-		$start = microtime(true);
+        if ($connection->getConfig('proxy') !== null) {
+            //TODO http proxy
+        }
 
-		$client->connect($connection->getHost());
-		$http_request = $this->create_http_request($method, $url, $content, $headers);
-		$client->send($http_request);
-		$socket_response  = $client->recv();
-		$response_headers = $this->parse_http_response($socket_response);
-		$client->close(true);
+        $start = microtime(true);
 
-		$responseString = $response_headers['body'];
+        $client->connect($connection->getHost());
+        $http_request = $this->createHttpRequest($method, $url, $content, $headers);
+        $client->send($http_request);
+        $socket_response  = $client->recv();
+        $response_headers = $this->parseHttpResponse($socket_response);
+        $client->close(true);
 
-		$end = microtime(true);
+        $responseString = $response_headers['body'];
 
-		// TODO error
-		$errorno = 0;
-		$status  = $response_headers['status'];
+        $end = microtime(true);
 
-		if (isset($params['responseClass']))
-		{
-			$responseClass = $params['responseClass'];
-			$response      = new $responseClass($responseString, $status);
-		}
-		else
-		{
-			$response = new Response($responseString, $status);
-		}
+        // TODO error
+        $errorno = 0;
+        $status  = $response_headers['status'];
 
-		$time = $end - $start;
-		$response->setTime($time);
-		$response->setTransportInfo([
-			'url'     => $url,
-			'headers' => $headers,
-			'body'    => $request->getBody()
-		]);
-		//hard error
-		if ($errorno > 0)
-		{
-			$error = curl_error($conn);
+        if (isset($params['responseClass'])) {
+            $responseClass = $params['responseClass'];
+            $response      = new $responseClass($responseString, $status);
+        } else {
+            $response = new Response($responseString, $status);
+        }
 
-			/* @phpstan-ignore-next-line */
-			self::$curl = false;
-			throw new ConnectionException($error, $request);
-		}
+        $time = $end - $start;
+        $response->setTime($time);
+        $response->setTransportInfo([
+            'url'     => $url,
+            'headers' => $headers,
+            'body'    => $request->getBody()
+        ]);
+        //hard error
+        if ($errorno > 0) {
+            $error = curl_error($conn);
 
-		$this->logger->debug('Request body:', [
-			'connection' => $connection->getConfig(),
-			'payload'    => $request->getBody()
-		]);
-		$this->logger->info('Request:', [
-			'url'    => $url,
-			'status' => $status,
-			'time'   => $time
-		]);
-		$this->logger->debug('Response body:', [json_decode($responseString, true)]);
-		//soft error
-		if ($response->hasError())
-		{
-			$this->logger->error('Response error:', [$response->getError()]);
-			throw new ResponseException($request, $response);
-		}
+            /* @phpstan-ignore-next-line */
+            self::$curl = false;
+            throw new ConnectionException($error, $request);
+        }
 
-		return $response;
-	}
+        $this->logger->debug('Request body:', [
+            'connection' => $connection->getConfig(),
+            'payload'    => $request->getBody()
+        ]);
+        $this->logger->info('Request:', [
+            'url'    => $url,
+            'status' => $status,
+            'time'   => $time
+        ]);
+        $this->logger->debug('Response body:', [json_decode($responseString, true)]);
+        //soft error
+        if ($response->hasError()) {
+            $this->logger->error('Response error:', [$response->getError()]);
+            throw new ResponseException($request, $response);
+        }
 
-	/**
-	 * @param bool $persistent
-	 *
-	 * @return \Swoole\Client|null
-	 */
-	protected function getSocketConnection(bool $persistent = true)
-	{
-		if (!$persistent || !self::$client)
-		{
-			self::$client = new \Swoole\Client(SWOOLE_SOCK_UNIX_STREAM, false);
+        return $response;
+    }
 
-			self::$client->set([
-				// 'open_eof_check' => true,
-				// 'open_eof_split' => true,
-				// 'package_eof'    => "\r\n\r\n"
-			]);
-		}
+    /**
+     * @param bool $persistent
+     *
+     * @return \Swoole\Client|null
+     */
+    protected function getSocketConnection(bool $persistent = true)
+    {
+        if (!$persistent || !self::$client) {
+            self::$client = new \Swoole\Client(SWOOLE_SOCK_UNIX_STREAM, false);
 
-		return self::$client;
-	}
+            self::$client->set([
+                // 'open_eof_check' => true,
+                // 'open_eof_split' => true,
+                // 'package_eof'    => "\r\n\r\n"
+            ]);
+        }
 
-	/**
-	 * @param string      $method
-	 * @param string      $url
-	 * @param string|null $content
-	 * @param array       $headers
-	 *
-	 * @return string
-	 */
-	public function create_http_request(string $method, string $url, ?string $content = null, array $headers = [])
-	{
-		$pack = [];
+        return self::$client;
+    }
 
-		// HTTP/1.1 couse an implementation problem on manticore api side
-		$pack[] = "${method} ${url} HTTP/1.0";
-		$pack[] = "Accept: */*";
-		$pack   = array_merge($pack, $headers);
-		if ($content)
-		{
-			$pack[] = 'Content-Length: ' . strlen($content);
-		}
-		$pack[] = "";
+    /**
+     * @param string      $method
+     * @param string      $url
+     * @param string|null $content
+     * @param array       $headers
+     *
+     * @return string
+     */
+    public function createHttpRequest(string $method, string $url, ?string $content = null, array $headers = [])
+    {
+        $pack = [];
 
-		if ($content)
-		{
-			$pack[] = $content;
-		}
+        // HTTP/1.1 couse an implementation problem on manticore api side
+        $pack[] = "${method} ${url} HTTP/1.0";
+        $pack[] = "Accept: */*";
+        $pack   = array_merge($pack, $headers);
+        if ($content) {
+            $pack[] = 'Content-Length: ' . strlen($content);
+        }
+        $pack[] = "";
 
-		$pack[] = "\r\n";
+        if ($content) {
+            $pack[] = $content;
+        }
 
-		return implode("\r\n", $pack);
-	}
+        $pack[] = "\r\n";
 
-	/**
-	 * @param string $raw_response_string
-	 *
-	 * @return array
-	 */
-	public function parse_http_response(string $raw_response_string)
-	{
-		$return = [
-			'http_version' => null,
-			'status'       => 0,
-			'status_text'  => '',
-			'headers'      => [],
-			'body'         => null,
-		];
+        return implode("\r\n", $pack);
+    }
 
-		$raw_response_arr = explode("\r\n\r\n", $raw_response_string, 2);
+    /**
+     * @param string $raw_response_string
+     *
+     * @return array
+     */
+    public function parseHttpResponse(string $raw_response_string)
+    {
+        $return = [
+            'http_version' => null,
+            'status'       => 0,
+            'status_text'  => '',
+            'headers'      => [],
+            'body'         => null,
+        ];
 
-		$headers = explode("\r\n", $raw_response_arr[0]);
+        $raw_response_arr = explode("\r\n\r\n", $raw_response_string, 2);
 
-		if (str_starts_with($headers[0], 'HTTP'))
-		{
-			[$return['http_version'], $return['status'], $return['status_text']] = explode(' ', $headers[0], 3);
-			unset($headers[0]);
-		}
+        $headers = explode("\r\n", $raw_response_arr[0]);
 
-		foreach ($headers as $v)
-		{
-			$h = preg_split('/:\s*/', $v, flags: PREG_SPLIT_NO_EMPTY);
+        if (strpos($headers[0], 'HTTP') === 0) {
+            [$return['http_version'], $return['status'], $return['status_text']] = explode(' ', $headers[0], 3);
+            unset($headers[0]);
+        }
 
-			if (isset($h[0]))
-			{
-				$return['headers'][strtolower($h[0])] = $h[1];
-			}
-		}
+        foreach ($headers as $v) {
+            $h = preg_split('/:\s*/', $v, -1, PREG_SPLIT_NO_EMPTY);
 
-		if ($return['headers']['content-length'])
-		{
-			$return['headers']['content-length'] = (int)$return['headers']['content-length'];
-			$return['original_body']             = $raw_response_arr[1];
-			$return['body']                      = substr($raw_response_arr[1], 0, $return['headers']['content-length']);
-		}
+            if (isset($h[0])) {
+                $return['headers'][strtolower($h[0])] = $h[1];
+            }
+        }
 
-		$return['status'] = (int)$return['status'];
+        if ($return['headers']['content-length']) {
+            $return['headers']['content-length'] = (int)$return['headers']['content-length'];
+            $return['original_body']             = $raw_response_arr[1];
+            $return['body']                      = substr($raw_response_arr[1], 0, $return['headers']['content-length']);
+        }
 
-		return $return;
-	}
+        $return['status'] = (int)$return['status'];
+
+        return $return;
+    }
 }
